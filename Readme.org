@@ -1,0 +1,33 @@
+#+TITLE:compile-db-gen
+Generate JSON compilation database from make (or other compile tools)
+
+The cmake can generate the compilation database with -DCMAKE_EXPORT_COMPILE_COMMANDS=ON.
+And the [[https://github.com/rizsotto/Bear][Build EAR]] try to generate the compilation database, but it maybe failed for some cross-compile project.
+compile-db-gen do well for large project.
+
+** How to use
+#+BEGIN_SRC sh
+python compile-db-gen trace make OPTS
+python compile-db-gen parse compile_commands.raw compile_commands.json
+#+END_SRC
+Then you got the compile_commands.json.
+for more options, please run
+#+BEGIN_SRC sh
+python compile-db-gen -h
+#+END_SRC
+
+** How dose it work
+   The [[http://wikipedia.org/wiki/Strace][strace]] can follow the compile tools and give the compile detail.
+
+   And compile-db-gen will follow the log file from strace compile procedural, then output the compile commands.
+
+** Requirment
+   The compile-db-gen require the child terminal informations contain parent pid in strace output, the strace-4.8 and high give that, the follow log give hists that child(pid=937) end, parent's pid=936.
+#+BEGIN_QUOTE
+ strace-4.8: [pid 936] --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=937, si_status=0, si_utime=0, si_stime=0} ---
+#+END_QUOTE
+but the strace-4.5 seems dosn't
+#+BEGIN_QUOTE
+ strace-4.5: [pid 936] --- si_code=CLD_EXITED SIGCHLD 0 ---
+#+END_QUOTE
+ I didn't try the strace-4.6, strace-4.7, if you did, please let me know.
