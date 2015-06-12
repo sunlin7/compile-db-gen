@@ -7,13 +7,13 @@ compile-db-gen do well for large project.
 
 ** How to use
 #+BEGIN_SRC sh
-python compile-db-gen trace make OPTS
-python compile-db-gen parse compile_commands.raw compile_commands.json
+python compile-db-gen.py trace make OPTS
+python compile-db-gen.py parse compile_commands.raw compile_commands.json
 #+END_SRC
 Then you got the compile_commands.json.
 for more options, please run
 #+BEGIN_SRC sh
-python compile-db-gen -h
+python compile-db-gen.py -h
 #+END_SRC
 
 ** How dose it work
