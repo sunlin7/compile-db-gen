@@ -107,14 +107,14 @@ proc_run[pid] = {
                                                          "command": join_command(command),
                                                          "file": f})
 
-def print_exec_trace(proc_run, cwd, fs):
+def print_exec_trace(proc_run, cwd, proc_res):
     """Print the execute trace in compile data json format."""
     for pid in proc_run:
         proc = proc_run[pid]
         wd = os.path.join(cwd, proc["cwd"])
 
         for child in proc["child"]:
-            print_exec_trace(child, wd, fs)
+            print_exec_trace(child, wd, proc_res)
         for cmd in proc_run[pid]["cmds"]:
             d = wd; #os.path.join(wd, cmd["directory"])
             cmd["directory"] = d
@@ -127,8 +127,7 @@ def print_exec_trace(proc_run, cwd, fs):
                 continue
             if len(exclude_dir) > 0 and any((r.search(d) for r in exclude_dir)):
                 continue
-            print(cmd, file=fs)
-
+            proc_res.append(cmd)
 
 def trace(args):
     "Trace the compile command and get the raw compile log."
@@ -151,7 +150,9 @@ def trace(args):
     p = subprocess.Popen(command, stderr = subprocess.PIPE);
     p.wait();
     if p.returncode != 0:
-        print(p.stdout.read())
+        print(p.stderr.read())
+
+    return p.returncode
 
 def parse(args):
     proc_end = {}
@@ -174,48 +175,26 @@ def parse(args):
         include_dir.append(re.compile(i))
     for e in args.exclude_dir:
         exclude_dir.append(re.compile(e))
-    print_exec_trace(proc_run, cwd, fs)
+    proc_res = []
+    print_exec_trace(proc_run, cwd, proc_res)
+    print(proc_res, file=fs)
 
-def main():
-    "The main function"
+def run(args):
+    """run the build command and generate the compilation database."""
+    raw_database = "./compile_commands.raw"
+    output = args.output
+    args.output = raw_database
+    if trace (args) is 0:
+        args.output = output    # restore the value
+        args.raw_database = raw_database
+        parse (args)
 
-    parser = argparse.ArgumentParser(description = "Generate the compile database from build")
-    subparsers = parser.add_subparsers(metavar = "SUBCOMMAND")
-
-    # trace
-    s = subparsers.add_parser (
-        "trace",
-        help = "trace build command",
-        description = "Create a compilation database by tracing a build command.")
-    s.add_argument (
-        "--output", "-o",
-        default = "./compile_commands.raw",
-        help = "the strace output file")
-    s.add_argument (
-        "command",
-        metavar = "COMMAND",
-        nargs = argparse.REMAINDER,
-        help = "build command line")
-    s.set_defaults (sourceType = "trace")
-    s.set_defaults (fun = trace)
-
-    # parse
-    s = subparsers.add_parser (
-        "parse",
-        help = "parse the strace file",
-        description = "Create a compilation database from the result by tracing a build command.")
-    s.add_argument (
-        "raw_database",
-        default = "./compile_commands.raw",
-        help = "the raw database from strace")
+def add_common_opts_parse(s):
+    """add the opts for subcommand "parse" """
     s.add_argument (
         "--startup-dir", "-s",
         default = None,
         help = "the startup directory")
-    s.add_argument (
-        "output",
-        default = "./compile_commands.json",
-        help = "the output compilor database")
     s.add_argument (
         "--include", "-i",
         metavar = "REGEX",
@@ -240,15 +219,104 @@ def main():
         default = [],
         action = "append",
         help = "exclude the dir patten")
+
+def add_common_opts_trace(s):
+    """add the opts for subcommand "trace" """
+    s.add_argument (
+        "command",
+        metavar = "COMMAND",
+        nargs = argparse.REMAINDER,
+        help = "build command line")
+
+def main():
+    "The main function"
+
+    parser = argparse.ArgumentParser(description = "Generate the compile database from build")
+    subparsers = parser.add_subparsers(metavar = "SUBCOMMAND")
+
+    # run the compile command and generate the JSON compilation database
+    s = subparsers.add_parser (
+        "run",
+        help = "(Default) trace build command, and parse result ",
+        description = "Create a compilation database by tracing a build command.")
+    add_common_opts_parse (s)
+    add_common_opts_trace (s)
+    s.add_argument (
+        "--output", "-o",
+        default = "./compile_commands.json",
+        help = "the strace output file")
+    s.set_defaults (sourceType = "run")
+    s.set_defaults (fun = run)
+
+    # trace
+    s = subparsers.add_parser (
+        "trace",
+        help = "trace build command",
+        description = "Create a compilation database by tracing a build command.")
+    s.add_argument (
+        "--output", "-o",
+        default = "./compile_commands.raw",
+        help = "the strace output file")
+    add_common_opts_trace (s)
+    s.set_defaults (sourceType = "trace")
+    s.set_defaults (fun = trace)
+
+    # parse
+    s = subparsers.add_parser (
+        "parse",
+        help = "parse the strace file",
+        description = "Create a compilation database from the result by tracing a build command.")
+    add_common_opts_parse (s)
+    s.add_argument (
+        "raw_database",
+        default = "./compile_commands.raw",
+        nargs = '?',
+        help = "the raw database from strace")
+    s.add_argument (
+        "output",
+        default = "./compile_commands.json",
+        nargs = '?',
+        help = "the output compilor database")
     s.set_defaults (sourceType = "parse")
     s.set_defaults (fun = parse)
 
+    parser.set_default_subparser("run") # set default subcommand after all subcommand ready
     args = parser.parse_args ()
     return args.fun (args)
+    print(args)
+
+# from http://stackoverflow.com/questions/6365601/default-sub-command-or-handling-no-sub-command-with-argparse
+def set_default_subparser(self, name, args=None):
+    """default subparser selection. Call after setup, just before parse_args()
+    name: is the name of the subparser to call by default
+    args: if set is the argument list handed to parse_args()
+
+    , tested with 2.7, 3.2, 3.3, 3.4
+    it works with 2.6 assuming argparse is installed
+    """
+    subparser_found = False
+    for arg in sys.argv[1:]:
+        if arg in ['-h', '--help']:  # global help if no subparser
+            break
+    else:
+        for x in self._subparsers._actions:
+            if not isinstance(x, argparse._SubParsersAction):
+                continue
+            for sp_name in x._name_parser_map.keys():
+                if sp_name in sys.argv[1:]:
+                    subparser_found = True
+        if not subparser_found:
+            # insert default in first position, this implies no
+            # global options without a sub_parsers specified
+            if args is None:
+                sys.argv.insert(1, name)
+            else:
+                args.insert(0, name)
 
 if __name__ == "__main__":
     try:
         import argparse
+        argparse.ArgumentParser.set_default_subparser = set_default_subparser
     except ImportError:
         import arg2opt as argparse
     sys.exit(main())
