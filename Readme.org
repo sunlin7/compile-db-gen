@@ -1,16 +1,23 @@
 #+TITLE:compile-db-gen
-Generate JSON compilation database from make (or other compile tools)
+Generate [[http://clang.llvm.org/docs/JSONCompilationDatabase.html][JSON compilation database]] from make (or other compile tools).
 
 The cmake can generate the compilation database with -DCMAKE_EXPORT_COMPILE_COMMANDS=ON.
+
 And the [[https://github.com/rizsotto/Bear][Build EAR]] try to generate the compilation database, but it maybe failed for some cross-compile project.
-compile-db-gen do well for large project.
+
+compile-db-gen do well for complicate compiler.
 
 ** How to use
+Just put your make command after compile-db-gen.py, eg:
+#+begin_src sh
+compile-db-gen.py make
+#+end_src
+Then you'll get the compile_commands.json.
+And you also can run follow command when you wan't to get detail:
 #+BEGIN_SRC sh
 python compile-db-gen.py trace make OPTS
 python compile-db-gen.py parse compile_commands.raw compile_commands.json
 #+END_SRC
-Then you got the compile_commands.json.
 for more options, please run
 #+BEGIN_SRC sh
 python compile-db-gen.py -h
@@ -19,15 +26,28 @@ python compile-db-gen.py -h
 ** How dose it work
    The [[http://wikipedia.org/wiki/Strace][strace]] can follow the compile tools and give the compile detail.
 
-   And compile-db-gen will follow the log file from strace compile procedural, then output the compile commands.
+   And compile-db-gen.py will follow the log file from strace compile procedural, then output the compile commands.
 
 ** Requirment
-   The compile-db-gen require the child terminal informations contain parent pid in strace output, the strace-4.8 and high give that, the follow log give hists that child(pid=937) end, parent's pid=936.
+   The strace-4.8 or high required.
+
+   The compile-db-gen.py depends on the child terminal informations contain parent pid from strace output, the follow log give hists that child(pid=937) ended, and pid for it's parent is pid=936.
 #+BEGIN_QUOTE
- strace-4.8: [pid 936] --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=937, si_status=0, si_utime=0, si_stime=0} ---
+ [pid 936] --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=937, si_status=0, si_utime=0, si_stime=0} ---
 #+END_QUOTE
-but the strace-4.5 seems dosn't
+but the strace-4.5 seems dosn't give the child pid.
 #+BEGIN_QUOTE
- strace-4.5: [pid 936] --- si_code=CLD_EXITED SIGCHLD 0 ---
+ [pid 936] --- si_code=CLD_EXITED SIGCHLD 0 ---
 #+END_QUOTE
- I didn't try the strace-4.6, strace-4.7, if you did, please let me know.
+ I didn't try compile-db-gen.py with the strace-4.6, strace-4.7, if you run compile-db-gen.py with starce-4.6/4.7, please let me know it success or failed.
+
+** Similar tools
+[[http://clang-analyzer.llvm.org/scan-build.html][scan-build]]
+It replace the CC, CXX env string, and get the compile database, but some makefile didn't care the CC, CXX env settings.
+
+[[https://github.com/rizsotto/Bear][Build EAR]]
+It inject libbear.so via LD_PRELOAD or DYLD_INSERT_LIBRARIES environment variables, then filter the compile command.
+I found Bear didn't work for some complicate sencen. For example, on amd_64 environment, the libear.so is ELF-64, then make file call some x86 exetable, the LD_PRELOAD won't work.
+
+[[https://github.com/ffevotte/clang-tags/blob/master/clang-tags][clang-tags trace]]
+The compile-db-gen.py very similar to 'clang-tags trace', but more flexiable.
