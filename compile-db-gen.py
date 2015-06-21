@@ -23,8 +23,8 @@ accepted = {'.c', '.C', '.cc', '.CC', '.cxx', '.cp', '.cpp', '.c++',
             '.m', '.mm',
             '.i', '.ii', '.mii'}
 include_file = []
-exclude_file = []
 include_dir  = []
+exclude_file = []
 exclude_dir  = []
 
 def compiler_call(executable):
@@ -50,11 +50,28 @@ def shell_escape(arg):
 def join_command(args):
     return ' '.join([shell_escape(arg) for arg in args])
 
+g_sys_inc = {}
+def get_sys_inc(compiler):
+    """return a list of compiler system include dir."""
+    if compiler in g_sys_inc:
+        return g_sys_inc[compiler]
+
+    lang = "c"
+    if re.compile(r"\+\+|pp$").findall(compiler):
+        lang = "c++"
+    p = subprocess.Popen([compiler, "-x", lang, "-E", "-v", "-"], stderr = subprocess.PIPE, stdin = subprocess.PIPE)
+    info = p.communicate(input='')[1]
+    raw_inc = re.compile(r"^.*starts here:((?:.|\n)*?)End of search list.", re.MULTILINE).findall(info)
+    if len(raw_inc) > 0:
+        incs = re.compile("/.*$", re.MULTILINE).findall(raw_inc[0])
+        g_sys_inc[compiler] = map(lambda x: "-I%s"%x, incs)
+    return g_sys_inc[compiler]
+
 chdir_re = re.compile (r"^(\d+) +chdir\((.*)\)\s+= 0")
 exec_re  = re.compile (r"^(\d+) +execve(\(.*\))\s+= 0")
 child_re = re.compile (r"^(\d+) .*SIGCHLD.*si_pid=(\d+).*")
 ccache_re = re.compile(r'^([^/]*/)*([^-]*-)*ccache(-\d+(\.\d+){0,2})?$')
-def parse_exec_trace(proc_run, fname):
+def parse_exec_trace(proc_run, fname, auto_sys_inc = False):
     """Construct the compile tree, and the key is pid, the node contain
 proc_run[pid] = {
 'cwd':'',   # the last chdir, the child process depend on this value
@@ -97,6 +114,10 @@ proc_run[pid] = {
                     programName = command[1] # for "ccache", drop first slot (which is "ccache")
                     del command[0]
                 if compiler_call(programName):
+                    sys_inc = []
+                    if auto_sys_inc:
+                        sys_inc = get_sys_inc(command[0])
+
                     for f in command: # make item for each
                         if is_source_file(f):
                             if not pid in proc_run:
@@ -104,7 +125,7 @@ proc_run[pid] = {
 
                             # print pid + " execv:" + proc_run[pid]["cwd"]
                             proc_run[pid]["cmds"].append({"directory":proc_run[pid]["cwd"],
-                                                         "command": join_command(command),
+                                                         "command": join_command(command  + sys_inc),
                                                          "file": f})
 
 def print_exec_trace(proc_run, cwd, proc_res):
@@ -162,7 +183,7 @@ def parse(args):
         cwd = os.path.abspath(args.startup_dir)
     else:
         cwd = os.path.dirname(os.path.abspath(fname))
-    parse_exec_trace(proc_run, fname)
+    parse_exec_trace(proc_run, fname, args.auto_sys_inc)
     fs = sys.stdout
     if args.output != "" and args.output != "-":
         fs = open(args.output, "w")
@@ -195,6 +216,11 @@ def add_common_opts_parse(s):
         "--startup-dir", "-s",
         default = None,
         help = "the startup directory")
+    s.add_argument (
+        "--auto-sys-inc", "-a",
+        default = False,
+        action = "store_true",
+        help = "auto detect the system include path")
     s.add_argument (
         "--include", "-i",
         metavar = "REGEX",
