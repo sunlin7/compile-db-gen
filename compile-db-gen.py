@@ -198,7 +198,7 @@ def parse(args):
         exclude_dir.append(re.compile(e))
     proc_res = []
     print_exec_trace(proc_run, cwd, proc_res)
-    print(proc_res, file=fs)
+    json.dump(proc_res, fs)
 
 def run(args):
     """run the build command and generate the compilation database."""
