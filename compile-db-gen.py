@@ -306,10 +306,9 @@ def main():
     s.set_defaults (sourceType = "parse")
     s.set_defaults (fun = parse)
 
-    parser.set_default_subparser("run") # set default subcommand after all subcommand ready
+    parser.set_default_subparser(len(os.sys.argv) <= 1 and "-h" or "run") # set default subcommand after all subcommand ready
     args = parser.parse_args ()
     return args.fun (args)
-    print(args)
 
 # from http://stackoverflow.com/questions/6365601/default-sub-command-or-handling-no-sub-command-with-argparse
 def set_default_subparser(self, name, args=None):
