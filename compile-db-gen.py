@@ -168,7 +168,9 @@ def trace(args):
     arg_max = str(int(p.stdout.readline ()))
     command  = ["strace", "-f", "-s" + arg_max, "-etrace=execve,chdir", "-o", args.output]
     command += args.command
-    p = subprocess.Popen(command, stderr = subprocess.PIPE);
+    #TBD: the output of stdin/stderr maybe very large, hangup happend when try
+    # to grabe them, refer the manual of .wait() for detail.
+    p = subprocess.Popen(command);
     p.wait();
     if p.returncode != 0:
         print(p.stderr.read())
