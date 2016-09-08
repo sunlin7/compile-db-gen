@@ -118,6 +118,9 @@ proc_run[pid] = {
                     if auto_sys_inc:
                         sys_inc = get_sys_inc(command[0])
 
+                    if len(command) >= 2 and command[1] == "-cc1": # ignore the "clang -cc1 ..." call
+                        continue
+
                     for f in command: # make item for each
                         if is_source_file(f):
                             if not pid in proc_run:
