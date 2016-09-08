@@ -172,8 +172,6 @@ def trace(args):
     # to grabe them, refer the manual of .wait() for detail.
     p = subprocess.Popen(command);
     p.wait();
-    if p.returncode != 0:
-        print(p.stderr.read())
 
     return p.returncode
 
