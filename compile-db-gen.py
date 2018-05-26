@@ -1,7 +1,8 @@
-#! /usr/bin/python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
+import copy
 import itertools
 import json
 import os
@@ -48,6 +49,7 @@ def shell_escape(arg):
     return quote(arg) if len(shlex.split(arg)) > 1 else arg
 
 def join_command(args):
+    """Join the command with escaped options."""
     return ' '.join([shell_escape(arg) for arg in args])
 
 g_sys_inc = {}
@@ -61,48 +63,39 @@ def get_sys_inc(compiler):
         lang = "c++"
     p = subprocess.Popen([compiler, "-x", lang, "-E", "-v", "-"], stderr = subprocess.PIPE, stdin = subprocess.PIPE)
     info = p.communicate(input='')[1]
-    raw_inc = re.compile(r"^.*starts here:((?:.|\n)*?)End of search list.", re.MULTILINE).findall(info)
+    raw_inc = re.compile(r"^.*starts here:((?:.|\n)*?)End of search list.", re.MULTILINE).findall(info.decode('utf-8'))
     if len(raw_inc) > 0:
         incs = re.compile("/.*$", re.MULTILINE).findall(raw_inc[0])
-        g_sys_inc[compiler] = map(lambda x: "-I%s"%x, incs)
+        g_sys_inc[compiler] = [ "-I%s"%x for x in incs]
     return g_sys_inc[compiler]
+
+class OType:
+    CHILD = 1
+    CHDIR = 2
+    EXEC = 3
 
 chdir_re = re.compile (r"^(\d+) +chdir\((.*)\)\s+= 0")
 exec_re  = re.compile (r"^(\d+) +execve(\(.*\))\s+= 0")
 child_re = re.compile (r"^(\d+) .*SIGCHLD.*si_pid=(\d+).*")
 ccache_re = re.compile(r'^([^/]*/)*([^-]*-)*ccache(-\d+(\.\d+){0,2})?$')
-def parse_exec_trace(proc_run, fname, auto_sys_inc = False):
-    """Construct the compile tree, and the key is pid, the node contain
-proc_run[pid] = {
-'cwd':'',   # the last chdir, the child process depend on this value
-'child':[], # the child node
-'cmds': []  # the commands
-}"""
-    with open(fname, 'r') as fd:
+def genlineobjs(fname):
+    """Parse the lines into objects."""
+    objList = []
+    with open(fname, 'r') as fd:  # pre process to sensitive objects
         for line in fd:
             m = chdir_re.match(line)
             if m is not None:   # chdir, record this
                 pid = m.group(1)
                 wd  = eval(m.group(2))
-                if not pid in proc_run:
-                    proc_run[pid] = {"cwd":"", "child":[], "cmds": []}
-                proc_run[pid]["cwd"] = os.path.join(proc_run[pid]["cwd"], wd)
-                # print pid + " chdir:" + proc_run[pid]["cwd"]
+                objList.append({'type':OType.CHDIR, 'pid':pid, 'wd':wd})
+                # print (pid + " chdir:" + proc_run[pid]["cwd"])
                 continue
 
             m = child_re.match(line)
             if m is not None:   # the child process end, move it to it's parent
                 pid = m.group(1)
                 cid = m.group(2)
-                if cid in proc_run:
-                    item = proc_run[cid]
-                    del proc_run[cid] # remove from 'running' process list
-
-                    if not pid in proc_run: # this process end, append it to it's parent
-                        proc_run[pid] = {"cwd":"", "child":[], "cmds": []}
-                    item["cwd"] = proc_run[pid]["cwd"] # use the parent directory
-                    # print pid + " child_end:" + item["cwd"]
-                    proc_run[pid]["child"].append({cid:item})
+                objList.append({'type':OType.CHILD, 'pid':pid, 'cid':cid})
                 continue
 
             m = exec_re.match(line)
@@ -110,26 +103,86 @@ proc_run[pid] = {
                 pid = m.group(1)
                 line = re.sub(", \[/\* [^*]+ \*/\]", "", m.group(2))
                 (programName, command) = eval(line)
-                if ccache_re.match(programName) is not None:
-                    programName = command[1] # for "ccache", drop first slot (which is "ccache")
-                    del command[0]
-                if compiler_call(programName):
-                    sys_inc = []
-                    if auto_sys_inc:
-                        sys_inc = get_sys_inc(command[0])
+                if ccache_re.match(programName) is not None \
+                   or compiler_call(programName):
+                   objList.append({'type':OType.EXEC, 'pid':pid, 'progName':programName, 'command': command}) 
 
-                    if len(command) >= 2 and command[1] == "-cc1": # ignore the "clang -cc1 ..." call
-                        continue
+    return objList
 
-                    for f in command: # make item for each
-                        if is_source_file(f):
-                            if not pid in proc_run:
-                                proc_run[pid] = {"cwd":"", "child":[], "cmds": []}
 
-                            # print pid + " execv:" + proc_run[pid]["cwd"]
-                            proc_run[pid]["cmds"].append({"directory":proc_run[pid]["cwd"],
-                                                         "command": join_command(command  + sys_inc),
-                                                         "file": f})
+def getParentPid(itrPidObj, pid):
+    for itr in itrPidObj:
+        if itr['type'] == OType.CHILD:
+            if itr['cid'] == pid:
+                return itr['pid']
+
+    return None
+
+
+def parse_exec_trace(proc_run, fname, auto_sys_inc = False):
+    """Construct the compile tree, and the key is pid, the node contain
+proc_run[pid] = {
+'cwd':'',   # the last chdir, the child process depend on this value
+'child':[], # the child node
+'cmds': []  # the commands
+}"""
+    objList = genlineobjs(fname)
+    itr = iter(objList)
+    while True:
+        item = None
+        try:
+            item = next(itr)
+        except StopIteration:
+            break
+
+        pid = item['pid']
+        if pid not in proc_run:           # first ocurr in the lines, new child process, get the dir
+            ppid = getParentPid(copy.copy(itr), pid)  # try to find the child end log to get its parent
+            cwd = proc_run[ppid]['cwd'] if ppid in proc_run else ""
+            proc_run[pid] = {"cwd":cwd, "child":[], "cmds":[]}
+
+        if item['type'] == OType.CHDIR:   # chdir, record this
+            proc_run[pid]["cwd"] = os.path.join(proc_run[pid]["cwd"], item['wd'])
+            # print(pid + " chdir:" + proc_run[pid]["cwd"]) 
+            continue
+
+        if item['type'] == OType.CHILD:   # the child process end, move it to it's parent
+            pid = item['pid']
+            cid = item['cid']
+            if cid in proc_run:
+                item = proc_run[cid]
+                del proc_run[cid] # remove from 'running' process list
+
+                if not pid in proc_run: # this process end, append it to it's parent
+                    proc_run[pid] = {"cwd":"", "child":[], "cmds": []}
+                # print(pid + " child_end:" + item["cwd"])
+                proc_run[pid]["child"].append({cid:item})
+            continue
+
+        if item['type'] == OType.EXEC:   # execve, get the compiler
+            pid = item['pid']
+            programName, command = item['progName'], item['command']
+            if ccache_re.match(programName) is not None:
+                programName = command[1] # for "ccache", drop first slot (which is "ccache")
+                del command[0]
+ 
+            if compiler_call(programName):
+                if len(command) >= 2 and command[1] == "-cc1": # ignore the "clang -cc1 ..." call
+                    continue
+
+                sys_inc = []
+                if auto_sys_inc:
+                    sys_inc = get_sys_inc(command[0])
+
+                for f in command: # make item for each
+                    if is_source_file(f):
+                        if not pid in proc_run:
+                            proc_run[pid] = {"cwd":"", "child":[], "cmds": []}
+
+                        # print pid + " execv:" + proc_run[pid]["cwd"]
+                        proc_run[pid]["cmds"].append({"directory":proc_run[pid]["cwd"],
+                                                     "command": join_command(command  + sys_inc),
+                                                     "file": f})
 
 def print_exec_trace(proc_run, cwd, proc_res):
     """Print the execute trace in compile data json format."""
@@ -154,13 +207,13 @@ def print_exec_trace(proc_run, cwd, proc_res):
             proc_res.append(cmd)
 
 def trace(args):
-    "Trace the compile command and get the raw compile log."
+    """Trace the compile command and get the raw compile log."""
     # request strace-4.8 or higher
     p = subprocess.Popen(["strace", "-V"], stdout = subprocess.PIPE)
     p.wait();
     sVer = p.stdout.readline()
     rVer = re.compile(".*(\d+)\.(\d+)")
-    mVer = rVer.match(sVer)
+    mVer = rVer.match(sVer.decode('utf-8'))
     major = int(mVer.group(1))
     if major < 4 or (major == 4 and int(mVer.group(2))  < 8):
         print("strace version should high than 4.8")
@@ -179,6 +232,7 @@ def trace(args):
     return p.returncode
 
 def parse(args):
+    """Parse the output from trace and generate the compile_commands.json."""
     proc_end = {}
     proc_run = {}
     fname= args.raw_database
@@ -208,7 +262,7 @@ def run(args):
     raw_database = "./compile_commands.raw"
     output = args.output
     args.output = raw_database
-    if trace (args) is 0:
+    if trace (args) == 0:
         args.output = output    # restore the value
         args.raw_database = raw_database
         parse (args)
@@ -221,7 +275,7 @@ def add_common_opts_parse(s):
         help = "the startup directory")
     s.add_argument (
         "--auto-sys-inc", "-a",
-        default = False,
+        default = True,
         action = "store_true",
         help = "auto detect the system include path")
     s.add_argument (
