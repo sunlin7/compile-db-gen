@@ -101,7 +101,11 @@ def genlineobjs(fname):
             m = exec_re.match(line)
             if m is not None:   # execve, get the compiler
                 pid = m.group(1)
+                # for strace <=4.11, format: 012 execve("PATH", ["E", "..."], [/* N vars */]) = 0
+                # for strace 2018, format:   012 execve("PATH", ["E", "..."], 0xM /* N vars */) = 0
+                # remove the tail of execve()
                 line = re.sub(", \[/\* [^*]+ \*/\]", "", m.group(2))
+                line = re.sub(', 0x[^\)]+', '', line)
                 (programName, command) = eval(line)
                 if ccache_re.match(programName) is not None \
                    or compiler_call(programName):
@@ -211,14 +215,16 @@ def trace(args):
     # request strace-4.8 or higher
     p = subprocess.Popen(["strace", "-V"], stdout = subprocess.PIPE)
     p.wait();
-    sVer = p.stdout.readline()
-    rVer = re.compile(".*(\d+)\.(\d+)")
-    mVer = rVer.match(sVer.decode('utf-8'))
-    major = int(mVer.group(1))
-    if major < 4 or (major == 4 and int(mVer.group(2))  < 8):
-        print("strace version should high than 4.8")
-        print("Current:" + sVer)
-        sys.exit(1)
+    sVer = p.stdout.read().decode('utf-8')
+    # for Ubuntu 18.04, the ver string is "version UNKNOWN"
+    mVer = re.match("strace -- version (\d+)\.(\d+)", sVer)
+    if mVer:
+        major = int(mVer.group(1))
+        if major < 4 or (major == 4 and int(mVer.group(2))  < 8):
+            print("strace version should high than 4.8")
+            print("Current:" + sVer)
+            sys.exit(1)
+
     p = subprocess.Popen(["getconf", "ARG_MAX"], stdout = subprocess.PIPE)
     p.wait()
     arg_max = str(int(p.stdout.readline ()))
