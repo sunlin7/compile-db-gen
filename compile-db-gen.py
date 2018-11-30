@@ -37,16 +37,24 @@ def is_source_file(filename):
     __, ext = os.path.splitext(filename)
     return ext in accepted
 
+
+def shell_quote(arg):
+    table = {'\\': '\\\\', '"': '\\"', "'": "\\'"}
+    return ''.join([table.get(c, c) for c in arg])
+
+
 def shell_escape(arg):
     """ Create a single string from list.
 
     The major challenge, to deal with white spaces. Which are used by
     the shell as separator. (Eg.: -D_KEY="Value with spaces") """
-    def quote(arg):
-        table = {'\\': '\\\\', '"': '\\"', "'": "\\'"}
-        return '"' + ''.join([table.get(c, c) for c in arg]) + '"'
+    # rtags have bug to deal "-D_KEY=\"V S\"", it only support -D_KEY="\"V S\""
+    m = re.search(r'([^\'\"\\]+)([\'\"\\].*)', arg)
+    if m:
+        return '%s"%s"' % (m.group(1), shell_quote(m.group(2)))
+    else:
+        return arg
 
-    return quote(arg) if len(shlex.split(arg)) > 1 else arg
 
 def join_command(args):
     """Join the command with escaped options."""
