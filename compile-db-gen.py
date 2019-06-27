@@ -229,18 +229,17 @@ proc_run[pid] = {
                         })
 
 
-def print_exec_trace(proc_run, cwd, proc_res):
+def print_exec_trace(proc_run, ppwd, proc_res):
     """Print the execute trace in compile data json format."""
     for pid in proc_run:
         proc = proc_run[pid]
-        wd = os.path.join(cwd, proc["cwd"])
 
         for child in proc["child"]:
-            print_exec_trace(child, wd, proc_res)
+            print_exec_trace(child, ppwd, proc_res)
         for cmd in proc_run[pid]["cmds"]:
-            d = wd              # os.path.join(wd, cmd["directory"])
-            cmd["directory"] = d
+            cmd["directory"] = os.path.join(ppwd, cmd["directory"])
             f = cmd["file"]
+
             if len(include_file) > 0 \
                and not (any((r.search(f) for r in include_file))):
                 continue
