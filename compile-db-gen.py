@@ -202,6 +202,10 @@ proc_run[pid] = {
                     # ignore the "clang -cc1 ..." call
                     continue
 
+                if any([x in ['-M', '-MM'] for x in command]):
+                    # ignore the -Mx param, which will fork a child to compile
+                    continue
+
                 sys_inc = []
                 if auto_sys_inc:
                     sys_inc = get_sys_inc(command[0])
