@@ -289,10 +289,7 @@ def parse(args):
     """Parse the output from trace and generate the compile_commands.json."""
     proc_run = {}
     fname = args.raw_database
-    if args.startup_dir is not None:
-        cwd = os.path.abspath(args.startup_dir)
-    else:
-        cwd = os.path.dirname(os.path.abspath(fname))
+    cwd = os.path.abspath(args.startup_dir)
     parse_exec_trace(proc_run, fname, args.auto_sys_inc)
     fs = sys.stdout
     if args.output != "" and args.output != "-":
@@ -326,7 +323,7 @@ def add_common_opts_parse(s):
     """add the opts for subcommand "parse" """
     s.add_argument(
         "--startup-dir", "-s",
-        default=None,
+        default='.',
         help="the startup directory")
     s.add_argument(
         "--auto-sys-inc", "-a",
