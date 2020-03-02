@@ -1,23 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
-from __future__ import print_function
+import argparse
 import copy
 import json
 import os
 import re
 import subprocess
 import sys
+from enum import IntEnum
 
-compilers = [
-    re.compile(r'^([^/]*/)*([^-]*-)*c(c|\+\+)$'),
-    re.compile(r'^([^/]*/)*([^-]*-)*g(cc|\+\+)(-\d+(\.\d+){0,2})?$'),
-    re.compile(r'^([^/]*/)*([^-]*-)*clang(\+\+)?(-\d+(\.\d+){0,2})?$'),
-    re.compile(r'^([^/]*/)*llvm-g(cc|\+\+)$'),
-]
-accepted = {'.c', '.C', '.cc', '.CC', '.cxx', '.cp', '.cpp', '.c++',
-            '.m', '.mm',
-            '.i', '.ii', '.mii'}
+
 include_file = []
 include_dir = []
 exclude_file = []
@@ -26,16 +18,27 @@ exclude_dir = []
 
 def compiler_call(executable):
     """ A predicate to decide the entry is a compiler call or not. """
+    compilers = [
+        re.compile(r'^([^/]*/)*([^-]*-)*c(c|\+\+)$'),
+        re.compile(r'^([^/]*/)*([^-]*-)*g(cc|\+\+)(-\d+(\.\d+){0,2})?$'),
+        re.compile(r'^([^/]*/)*([^-]*-)*clang(\+\+)?(-\d+(\.\d+){0,2})?$'),
+        re.compile(r'^([^/]*/)*llvm-g(cc|\+\+)$'),
+    ]
     return any((pattern.match(executable) for pattern in compilers))
 
 
 def is_source_file(filename):
     """ A predicate to decide the filename is a source file or not. """
+    accepted = {
+        '.c', '.C', '.cc', '.CC', '.cxx', '.cp', '.cpp', '.c++', '.m', '.mm',
+        '.i', '.ii', '.mii'
+    }
     __, ext = os.path.splitext(filename)
     return ext in accepted
 
 
 def shell_quote(arg):
+    '''Quote the shell arguments'''
     table = {'\\': '\\\\', '"': '\\"', "'": "\\'"}
     return ''.join([table.get(c, c) for c in arg])
 
@@ -46,11 +49,10 @@ def shell_escape(arg):
     The major challenge, to deal with white spaces. Which are used by
     the shell as separator. (Eg.: -D_KEY="Value with spaces") """
     # rtags have bug to deal "-D_KEY=\"V S\"", it only support -D_KEY="\"V S\""
-    m = re.search(r'([^\'\"\\]+)([\'\"\\].*)', arg)
-    if m:
-        return '%s"%s"' % (m.group(1), shell_quote(m.group(2)))
-    else:
-        return arg
+    res = re.search(r'([^\'\"\\]+)([\'\"\\].*)', arg)
+    if res:
+        return '%s"%s"' % (res.group(1), shell_quote(res.group(2)))
+    return arg
 
 
 def join_command(args):
@@ -70,12 +72,13 @@ def get_sys_inc(compiler):
     if re.compile(r"\+\+|pp$").findall(compiler):
         lang = "c++"
 
-    p = subprocess.Popen(
-        [compiler, "-x", lang, "-E", "-v", "-"],
-        stderr=subprocess.PIPE, stdin=subprocess.PIPE)
+    p = subprocess.Popen([compiler, "-x", lang, "-E", "-v", "-"],
+                         stderr=subprocess.PIPE,
+                         stdin=subprocess.PIPE,
+                         stdout=subprocess.PIPE)
     info = p.communicate(input='')[1].decode('utf-8')
-    raw_inc = re.compile(
-        r"^.*starts here:((?:.|\n)*?)End of search list.", re.MULTILINE).findall(info)
+    raw_inc = re.compile(r"^.*starts here:((?:.|\n)*?)End of search list.",
+                         re.MULTILINE).findall(info)
     if len(raw_inc) > 0:
         incs = re.compile("/.*$", re.MULTILINE).findall(raw_inc[0])
         g_sys_inc[compiler] = ["-I%s" % x for x in incs]
@@ -96,26 +99,26 @@ ccache_re = re.compile(r'^([^/]*/)*([^-]*-)*ccache(-\d+(\.\d+){0,2})?$')
 
 def genlineobjs(fname):
     """Parse the lines into objects."""
-    objList = []
+    obj_list = []
     with open(fname, 'r') as fd:  # pre process to sensitive objects
         for line in fd:
             m = chdir_re.match(line)
-            if m is not None:   # chdir, record this
+            if m is not None:  # chdir, record this
                 pid = m.group(1)
-                wd = eval(m.group(2))
-                objList.append({'type': OType.CHDIR, 'pid': pid, 'wd': wd})
+                wdir = eval(m.group(2))
+                obj_list.append({'type': OType.CHDIR, 'pid': pid, 'wd': wdir})
                 # print (pid + " chdir:" + proc_run[pid]["cwd"])
                 continue
 
             m = child_re.match(line)
-            if m is not None:   # the child process end, move it to it's parent
+            if m is not None:  # the child process end, move it to it's parent
                 pid = m.group(1)
                 cid = m.group(2)
-                objList.append({'type': OType.CHILD, 'pid': pid, 'cid': cid})
+                obj_list.append({'type': OType.CHILD, 'pid': pid, 'cid': cid})
                 continue
 
             m = exec_re.match(line)
-            if m is not None:   # execve, get the compiler
+            if m is not None:  # execve, get the compiler
                 pid = m.group(1)
                 # for strace <=4.11, format:
                 #  012 execve("PATH", ["E", "..."], [/* N vars */]) = 0
@@ -124,19 +127,22 @@ def genlineobjs(fname):
                 # remove the tail of execve()
                 line = re.sub(r", \[/\* [^*]+ \*/\]", "", m.group(2))
                 line = re.sub(r', 0x[^\)]+', '', line)
-                (programName, command) = eval(line)
-                if ccache_re.match(programName) is not None \
-                   or compiler_call(programName):
-                    objList.append({'type': OType.EXEC,
-                                    'pid': pid,
-                                    'progName': programName,
-                                    'command': command})
+                (prog_name, command) = eval(line)
+                if ccache_re.match(prog_name) is not None \
+                   or compiler_call(prog_name):
+                    obj_list.append({
+                        'type': OType.EXEC,
+                        'pid': pid,
+                        'prog_name': prog_name,
+                        'command': command
+                    })
 
-    return objList
+    return obj_list
 
 
-def getParentPid(itrPidObj, pid):
-    for itr in itrPidObj:
+def get_parent_pid(itr_pid_obj, pid):
+    'get parent PID'
+    for itr in itr_pid_obj:
         if itr['type'] == OType.CHILD:
             if itr['cid'] == pid:
                 return itr['pid']
@@ -151,8 +157,8 @@ proc_run[pid] = {
 'child':[], # the child node
 'cmds': []  # the commands
 }"""
-    objList = genlineobjs(fname)
-    itr = iter(objList)
+    obj_list = genlineobjs(fname)
+    itr = iter(obj_list)
     while True:
         item = None
         try:
@@ -164,11 +170,11 @@ proc_run[pid] = {
         if pid not in proc_run:
             # first ocurr in the lines, it's new child process, get the dir
             # try to find the child end log to get its parent
-            ppid = getParentPid(copy.copy(itr), pid)
+            ppid = get_parent_pid(copy.copy(itr), pid)
             cwd = proc_run[ppid]['cwd'] if ppid in proc_run else ""
             proc_run[pid] = {"cwd": cwd, "child": [], "cmds": []}
 
-        if item['type'] == OType.CHDIR:   # chdir, record this
+        if item['type'] == OType.CHDIR:  # chdir, record this
             proc_run[pid]["cwd"] = os.path.join(proc_run[pid]["cwd"],
                                                 item['wd'])
             # print(pid + " chdir:" + proc_run[pid]["cwd"])
@@ -189,15 +195,15 @@ proc_run[pid] = {
                 proc_run[pid]["child"].append({cid: item})
             continue
 
-        if item['type'] == OType.EXEC:   # execve, get the compiler
+        if item['type'] == OType.EXEC:  # execve, get the compiler
             pid = item['pid']
-            programName, command = item['progName'], item['command']
-            if ccache_re.match(programName) is not None:
+            prog_name, command = item['prog_name'], item['command']
+            if ccache_re.match(prog_name) is not None:
                 # for "ccache", drop first slot (which is "ccache")
-                programName = command[1]
+                prog_name = command[1]
                 del command[0]
 
-            if compiler_call(programName):
+            if compiler_call(prog_name):
                 if len(command) >= 2 and command[1] == "-cc1":
                     # ignore the "clang -cc1 ..." call
                     continue
@@ -223,9 +229,12 @@ proc_run[pid] = {
                         cmds = join_command(command + sys_inc)
                         jstr = shell_quote(cmds)
                         proc_run[pid]["cmds"].append({
-                            "directory": proc_run[pid]["cwd"],
-                            "command": jstr,
-                            "file": f
+                            "directory":
+                            proc_run[pid]["cwd"],
+                            "command":
+                            jstr,
+                            "file":
+                            f
                         })
 
 
@@ -241,16 +250,16 @@ def print_exec_trace(proc_run, ppwd, proc_res):
             f = cmd["file"]
 
             if len(include_file) > 0 \
-               and not (any((r.search(f) for r in include_file))):
+               and not any((r.search(f) for r in include_file)):
                 continue
             if len(exclude_file) > 0 \
                and any((r.search(f) for r in exclude_file)):
                 continue
             if len(include_dir) > 0 \
-               and not(any((r.search(d) for r in include_dir))):
+               and not any((r.search(f) for r in include_dir)):
                 continue
             if len(exclude_dir) > 0 \
-               and any((r.search(d) for r in exclude_dir)):
+               and any((r.search(f) for r in exclude_dir)):
                 continue
             proc_res.append(cmd)
 
@@ -258,30 +267,32 @@ def print_exec_trace(proc_run, ppwd, proc_res):
 def trace(args):
     """Trace the compile command and get the raw compile log."""
     # request strace-4.8 or higher
-    p = subprocess.Popen(["strace", "-V"], stdout=subprocess.PIPE)
-    p.wait()
-    sVer = p.stdout.read().decode('utf-8')
+    proc = subprocess.Popen(["strace", "-V"], stdout=subprocess.PIPE)
+    proc.wait()
+    s_ver = proc.stdout.read().decode('utf-8')
     # for Ubuntu 18.04, the ver string is "version UNKNOWN"
-    mVer = re.match(r'strace -- version (\d+)\.(\d+)', sVer)
-    if mVer:
-        major = int(mVer.group(1))
-        if major < 4 or (major == 4 and int(mVer.group(2)) < 8):
+    m_ver = re.match(r'strace -- version (\d+)\.(\d+)', s_ver)
+    if m_ver:
+        major = int(m_ver.group(1))
+        if major < 4 or (major == 4 and int(m_ver.group(2)) < 8):
             print("strace version should high than 4.8")
-            print("Current:" + sVer)
+            print("Current:" + s_ver)
             sys.exit(1)
 
-    p = subprocess.Popen(["getconf", "ARG_MAX"], stdout=subprocess.PIPE)
-    p.wait()
-    arg_max = str(int(p.stdout.readline()))
-    command = ["strace", "-f", "-s" + arg_max,
-               "-etrace=execve,chdir", "-o", args.output]
+    proc = subprocess.Popen(["getconf", "ARG_MAX"], stdout=subprocess.PIPE)
+    proc.wait()
+    arg_max = str(int(proc.stdout.readline()))
+    command = [
+        "strace", "-f", "-s" + arg_max, "-etrace=execve,chdir", "-o",
+        args.output
+    ]
     command += args.command
     # TBD: the output of stdin/stderr maybe very large, hangup happend when try
     # to grabe them, refer the manual of .wait() for detail.
-    p = subprocess.Popen(command)
-    p.wait()
+    proc = subprocess.Popen(command)
+    proc.wait()
 
-    return p.returncode
+    return proc.returncode
 
 
 def parse(args):
@@ -290,21 +301,21 @@ def parse(args):
     fname = args.raw_database
     cwd = os.path.abspath(args.startup_dir)
     parse_exec_trace(proc_run, fname, args.auto_sys_inc)
-    fs = sys.stdout
+    ofs = sys.stdout
     if args.output != "" and args.output != "-":
-        fs = open(args.output, "w")
+        ofs = open(args.output, "w")
 
     for i in args.include:
         include_file.append(re.compile(i))
-    for e in args.exclude:
-        exclude_file.append(re.compile(e))
+    for i in args.exclude:
+        exclude_file.append(re.compile(i))
     for i in args.include_dir:
         include_dir.append(re.compile(i))
-    for e in args.exclude_dir:
-        exclude_dir.append(re.compile(e))
+    for i in args.exclude_dir:
+        exclude_dir.append(re.compile(i))
     proc_res = []
     print_exec_trace(proc_run, cwd, proc_res)
-    json.dump(proc_res, fs, indent=4)
+    json.dump(proc_res, ofs, indent=4)
 
 
 def run(args):
@@ -452,9 +463,4 @@ def set_default_subparser(self, name, args=None):
 
 
 if __name__ == "__main__":
-    try:
-        import argparse
-        argparse.ArgumentParser.set_default_subparser = set_default_subparser
-    except ImportError:
-        import arg2opt as argparse
     sys.exit(main())
