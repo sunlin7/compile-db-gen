@@ -324,142 +324,111 @@ def run(args):
     output = args.output
     args.output = raw_database
     if trace(args) == 0:
-        args.output = output    # restore the value
+        args.output = output  # restore the value
         args.raw_database = raw_database
         parse(args)
 
 
 def add_common_opts_parse(s):
     """add the opts for subcommand "parse" """
-    s.add_argument(
-        "--startup-dir", "-s",
-        default='.',
-        help="the startup directory")
-    s.add_argument(
-        "--auto-sys-inc", "-a",
-        default=True,
-        action="store_true",
-        help="auto detect the system include path")
-    s.add_argument(
-        "--include", "-i",
-        metavar="REGEX",
-        default=[],
-        action="append",
-        help="include the file parten")
-    s.add_argument (
-        "--exclude", "-e",
-        metavar="REGEX",
-        default=[],
-        action="append",
-        help="exclude the file patten")
-    s.add_argument(
-        "--include-dir", "-I",
-        metavar="REGEX",
-        default=[],
-        action="append",
-        help="include the dir parten")
-    s.add_argument(
-        "--exclude-dir", "-E",
-        metavar="REGEX",
-        default=[],
-        action="append",
-        help="exclude the dir patten")
+    s.add_argument("--startup-dir",
+                   "-s",
+                   default='.',
+                   help="the startup directory")
+    s.add_argument("--auto-sys-inc",
+                   "-a",
+                   default=True,
+                   action="store_true",
+                   help="auto detect the system include path")
+    s.add_argument("--include",
+                   "-i",
+                   metavar="REGEX",
+                   default=[],
+                   action="append",
+                   help="include the file parten")
+    s.add_argument("--exclude",
+                   "-e",
+                   metavar="REGEX",
+                   default=[],
+                   action="append",
+                   help="exclude the file patten")
+    s.add_argument("--include-dir",
+                   "-I",
+                   metavar="REGEX",
+                   default=[],
+                   action="append",
+                   help="include the dir parten")
+    s.add_argument("--exclude-dir",
+                   "-E",
+                   metavar="REGEX",
+                   default=[],
+                   action="append",
+                   help="exclude the dir patten")
 
 
-def add_common_opts_trace(s):
+def add_common_opts_trace(parser):
     """add the opts for subcommand "trace" """
-    s.add_argument(
-        "command",
-        metavar="COMMAND",
-        nargs=argparse.REMAINDER,
-        help="build command line")
+    parser.add_argument("command",
+                        metavar="COMMAND",
+                        nargs=argparse.REMAINDER,
+                        help="build command line")
 
 
 def main():
     "The main function"
-
     parser = argparse.ArgumentParser(
         description="Generate the compile database from build")
     subparsers = parser.add_subparsers(metavar="SUBCOMMAND")
 
     # run the compile command and generate the JSON compilation database
-    s = subparsers.add_parser(
+    parser_run = subparsers.add_parser(
         "run",
         help="(Default) trace build command, and parse result ",
         description="Create a compilation database by tracing build command.")
-    add_common_opts_parse(s)
-    add_common_opts_trace(s)
-    s.add_argument(
-        "--output", "-o",
-        default="./compile_commands.json",
-        help="the strace output file")
-    s.set_defaults(sourceType="run")
-    s.set_defaults(fun=run)
+    add_common_opts_parse(parser_run)
+    add_common_opts_trace(parser_run)
+    parser_run.add_argument("--output",
+                            "-o",
+                            default="./compile_commands.json",
+                            help="the strace output file")
+    parser_run.set_defaults(fun=run)
 
     # trace
-    s = subparsers.add_parser(
+    parser_trace = subparsers.add_parser(
         "trace",
         help="trace build command",
         description="Create a compilation database by tracing build command.")
-    s.add_argument(
-        "--output", "-o",
-        default="./compile_commands.raw",
-        help="the strace output file")
-    add_common_opts_trace(s)
-    s.set_defaults(sourceType="trace")
-    s.set_defaults(fun=trace)
+    parser_trace.add_argument("--output",
+                              "-o",
+                              default="./compile_commands.raw",
+                              help="the strace output file")
+    add_common_opts_trace(parser_trace)
+    parser_trace.set_defaults(fun=trace)
 
     # parse
-    s = subparsers.add_parser(
+    parser_parse = subparsers.add_parser(
         "parse",
         help="parse the strace file",
         description="Create compilation database from the tracking log.")
-    add_common_opts_parse(s)
-    s.add_argument(
-        "raw_database",
-        default="./compile_commands.raw",
-        nargs='?',
-        help="the raw database from strace")
-    s.add_argument(
-        "output",
-        default="./compile_commands.json",
-        nargs='?',
-        help="the output compilor database")
-    s.set_defaults(sourceType="parse")
-    s.set_defaults(fun=parse)
+    add_common_opts_parse(parser_parse)
+    parser_parse.add_argument("raw_database",
+                              default="./compile_commands.raw",
+                              nargs='?',
+                              help="the raw database from strace")
+    parser_parse.add_argument("output",
+                              default="./compile_commands.json",
+                              nargs='?',
+                              help="the output compilor database")
+    parser_parse.set_defaults(fun=parse)
 
-    # set default subcommand after all subcommand ready
-    parser.set_default_subparser(len(os.sys.argv) <= 1 and "-h" or "run")
+    # set no subcommand in argv, set the 'run' as default
+    if len(sys.argv) >= 2:
+        if not any(['-h' in sys.argv,
+                    '--help' in sys.argv,
+                    sys.argv[1] in ['trace', 'parse', 'run']]):
+            sys.argv.insert(1, 'run')
     args = parser.parse_args()
     return args.fun(args)
-
-# from http://stackoverflow.com/questions/6365601/default-sub-command-or-handling-no-sub-command-with-argparse
-def set_default_subparser(self, name, args=None):
-    """default subparser selection. Call after setup, just before parse_args()
-    name: is the name of the subparser to call by default
-    args: if set is the argument list handed to parse_args()
-
-    , tested with 2.7, 3.2, 3.3, 3.4
-    it works with 2.6 assuming argparse is installed
-    """
-    subparser_found = False
-    for arg in sys.argv[1:]:
-        if arg in ['-h', '--help']:  # global help if no subparser
-            break
-    else:
-        for x in self._subparsers._actions:
-            if not isinstance(x, argparse._SubParsersAction):
-                continue
-            for sp_name in x._name_parser_map.keys():
-                if sp_name in sys.argv[1:]:
-                    subparser_found = True
-        if not subparser_found:
-            # insert default in first position, this implies no
-            # global options without a sub_parsers specified
-            if args is None:
-                sys.argv.insert(1, name)
-            else:
-                args.insert(0, name)
 
 
 if __name__ == "__main__":
