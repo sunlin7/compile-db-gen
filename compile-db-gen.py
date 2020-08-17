@@ -7,8 +7,6 @@ import os
 import re
 import subprocess
 import sys
-from enum import IntEnum
-
 
 include_file = []
 include_dir = []
@@ -33,7 +31,7 @@ def is_source_file(filename):
         '.c', '.C', '.cc', '.CC', '.cxx', '.cp', '.cpp', '.c++', '.m', '.mm',
         '.i', '.ii', '.mii'
     }
-    __, ext = os.path.splitext(filename)
+    _, ext = os.path.splitext(filename)
     return ext in accepted
 
 
