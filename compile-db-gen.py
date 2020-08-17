@@ -91,8 +91,8 @@ class OType:
     EXEC = 3
 
 
-chdir_re = re.compile(r"^(\d+) +chdir\((.*)\)\s+= 0")
-exec_re = re.compile(r"^(\d+) +execve(\(.*\))\s+= 0")
+chdir_re = re.compile(r"^(\d+) +chdir\((.*)(\)\s+= 0|<unfinished ...>)")
+exec_re = re.compile(r"^(\d+) +execve\((.*)(\)\s*= 0|<unfinished ...>)")
 child_re = re.compile(r"^(\d+) .*SIGCHLD.*si_pid=(\d+).*")
 ccache_re = re.compile(r'^([^/]*/)*([^-]*-)*ccache(-\d+(\.\d+){0,2})?$')
 
