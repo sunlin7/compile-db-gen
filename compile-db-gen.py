@@ -419,12 +419,15 @@ def main():
                               help="the output compilor database")
     parser_parse.set_defaults(fun=parse)
 
-    # set no subcommand in argv, set the 'run' as default
+    # no subcommand in argv, set the 'run' as default
     if len(sys.argv) >= 2:
         if not any(['-h' in sys.argv,
                     '--help' in sys.argv,
                     sys.argv[1] in ['trace', 'parse', 'run']]):
             sys.argv.insert(1, 'run')
+    else:                       # len(sys.argv) == 1
+        sys.argv.insert(1, "-h")
+
     args = parser.parse_args()
     return args.fun(args)
 
