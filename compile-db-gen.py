@@ -241,25 +241,31 @@ def print_exec_trace(proc_run, proc_res, auto_sys_inc=False):
             if auto_sys_inc:
                 sys_inc = get_sys_inc(command[0])
 
-            for f in command:  # make item for each
-                if is_source_file(f):
+            cmd_files = []
+            cmd_opts = []
+            for opt in command:  # make item for each
+                if is_source_file(opt):
                     if ((len(include_file) > 0
-                         and not any((r.search(f) for r in include_file)))
+                         and not any((r.search(opt) for r in include_file)))
                         or (len(exclude_file) > 0
-                            and any((r.search(f) for r in exclude_file)))
+                            and any((r.search(opt) for r in exclude_file)))
                         or (len(include_dir) > 0
-                            and not any((r.search(f) for r in include_dir)))
+                            and not any((r.search(opt) for r in include_dir)))
                         or (len(exclude_dir) > 0
-                            and any((r.search(f) for r in exclude_dir)))):
+                            and any((r.search(opt) for r in exclude_dir)))):
                         continue
 
-                    cmds = join_command(command + sys_inc)
-                    jstr = shell_quote(cmds)
-                    cmd = {"directory": item["cwd"],
-                           "command": jstr,
-                           "file": f}
+                    cmd_files.append(opt)
+                else:
+                    cmd_opts.append(opt)
 
-                    proc_res.append(cmd)
+            for fname in cmd_files:
+                cmds = join_command(cmd_opts + [fname] + sys_inc)
+                jstr = shell_quote(cmds)
+                cmd = {"directory": item["cwd"],
+                       "command": jstr,
+                       "file": fname}
+                proc_res.append(cmd)
 
 
 def trace(args):
