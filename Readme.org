@@ -1,37 +1,50 @@
+#+OPTIONS: ^:nil
 #+TITLE:compile-db-gen
-Generate [[http://clang.llvm.org/docs/JSONCompilationDatabase.html][JSON compilation database]] from make (or other compile tools).
+Generate the [[http://clang.llvm.org/docs/JSONCompilationDatabase.html][JSON compilation database]](compile_commands.json) from tracing the make command (or other compile tools).
 
-The cmake can generate the compilation database with -DCMAKE_EXPORT_COMPILE_COMMANDS=ON.
+** Why we need the compile-db-gen
+The ~compile-db-gen~ can work in complicate compile environment.
 
-And the [[https://github.com/rizsotto/Bear][Build EAR]] try to generate the compilation database, but it maybe failed for some cross-compile project.
+Or, the ~compile-db-gen~ can save us from hard getting the =compile_commands.json= scenario.
 
-compile-db-gen do well for complicate compiler.
+Here are some examples that getting the =compile_commands.json= easyly:
+1. A project which well orgnized with CMake, just run ~cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON~ to get the =compile_commands.json=.
 
-** How to use
-Just put your make command after compile-db-gen.py, eg:
+2. A project orgnized with automake, and the [[https://github.com/rizsotto/Bear][Build EAR]] can get the =compile_commands.json= correctly.
+
+...
+
+When we're NOT in these simple examples, the ~compile-db-gen~ can do well to get the =compile_commands.json=.
+
+** Usage
+Just run the ~compile-db-gen.py~ with ~make~ and its arguments, eg:
 #+begin_src sh
-compile-db-gen.py make
+./compile-db-gen.py make -j1
 #+end_src
-Then you'll get the compile_commands.json.
-And you also can run follow command when you wan't to get detail:
+Then it will generate the =compile_commands.json= in current directory.
+
+And follow commands will give more details:
 #+BEGIN_SRC sh
-python compile-db-gen.py trace make OPTS
-python compile-db-gen.py parse compile_commands.raw compile_commands.json
+./compile-db-gen.py trace make <OPTS>
+./compile-db-gen.py parse compile_commands.raw compile_commands.json
 #+END_SRC
-for more options, please run
+
+For more options, please run
 #+BEGIN_SRC sh
-python compile-db-gen.py -h
+./compile-db-gen.py -h
 #+END_SRC
 
 ** How dose it work
-   The [[http://wikipedia.org/wiki/Strace][strace]] can follow the compile tools and give the compile detail.
+   The [[http://wikipedia.org/wiki/Strace][strace]] tool can trace system call ~execve~ and write the arguments to log file.
 
-   And compile-db-gen.py will follow the log file from strace compile procedural, then output the compile commands.
+   Then the ~compile-db-gen.py~ follow the log file to construct the process calling tree, then output the compile commands.
 
-** Requirment
-   The strace-4.8 or high required.
+** Requirments
+   The ~strace-4.8~ or high is required; ~python3~ is required.
 
-   The compile-db-gen.py depends on the child terminal informations contain parent pid from strace output, the follow log give hists that child(pid=937) ended, and pid for it's parent is pid=936.
+   The ~compile-db-gen.py~ will track the child-process terminal message which contain parent pid from the ~strace~ log.
+
+The follow log give hists that child(pid=937) is ended, and the pid for its parent is pid=936.
 #+BEGIN_QUOTE
  [pid 936] --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=937, si_status=0, si_utime=0, si_stime=0} ---
 #+END_QUOTE
@@ -39,15 +52,15 @@ but the strace-4.5 seems dosn't give the child pid.
 #+BEGIN_QUOTE
  [pid 936] --- si_code=CLD_EXITED SIGCHLD 0 ---
 #+END_QUOTE
- I didn't try compile-db-gen.py with the strace-4.6, strace-4.7, if you run compile-db-gen.py with starce-4.6/4.7, please let me know it success or failed.
+ I didn't try the ~compile-db-gen.py~ with the ~strace-4.6~, ~strace-4.7~, if you had run the ~compile-db-gen.py~ with ~starce-4.6/4.7~, please let me know it's success or failed.
 
 ** Similar tools
 [[http://clang-analyzer.llvm.org/scan-build.html][scan-build]]
-It replace the CC, CXX env string, and get the compile database, but some makefile didn't care the CC, CXX env settings.
+It replace the CC, CXX environment string, then get the compile database, but lots of projects didn't use the CC, CXX environment settings, then ~scan-build~ won't work correctly.
 
-[[https://github.com/rizsotto/Bear][Build EAR]]
-It inject libbear.so via LD_PRELOAD or DYLD_INSERT_LIBRARIES environment variables, then filter the compile command.
-I found Bear didn't work for some complicate sencen. For example, on amd_64 environment, the libear.so is ELF-64, then make file call some x86 exetable, the LD_PRELOAD won't work.
+[[https://github.com/rizsotto/Bear][Build EAR]] (Bear)
+It inject the ~libbear.so~ via modify the environment variables =LD_PRELOAD= or =DYLD_INSERT_LIBRARIES=, then filter the compile command.
+But the ~Bear~ dosn't work for the complicate sencen, for example, a makefile call both x86 and x64 exetable binaries, but the ~libear.so~ is ELF-64, then the ~LD_PRELOAD~ will failed on tracing the x86 binaries.
 
 [[https://github.com/ffevotte/clang-tags/blob/master/clang-tags][clang-tags trace]]
-The compile-db-gen.py very similar to 'clang-tags trace', but more flexiable.
+The ~clang-tags trace~ just simply parse the ~strace~ log line by line, will give wrong result for it didn't walking through the building tree.
