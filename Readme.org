@@ -48,7 +48,7 @@ The follow log give hists that child(pid=937) is ended, and the pid for its pare
 #+BEGIN_QUOTE
  [pid 936] --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=937, si_status=0, si_utime=0, si_stime=0} ---
 #+END_QUOTE
-but the strace-4.5 seems dosn't give the child pid.
+but the strace-4.5 seems doesn't give the child pid.
 #+BEGIN_QUOTE
  [pid 936] --- si_code=CLD_EXITED SIGCHLD 0 ---
 #+END_QUOTE
@@ -56,11 +56,11 @@ but the strace-4.5 seems dosn't give the child pid.
 
 ** Similar tools
 [[http://clang-analyzer.llvm.org/scan-build.html][scan-build]]
-It replace the CC, CXX environment string, then get the compile database, but lots of projects didn't use the CC, CXX environment settings, then ~scan-build~ won't work correctly.
+It replaces the CC, CXX environment string, then get the compile database, but lots of projects didn't use the CC, CXX environment settings, then ~scan-build~ won't work correctly.
 
 [[https://github.com/rizsotto/Bear][Build EAR]] (Bear)
 It inject the ~libbear.so~ via modify the environment variables =LD_PRELOAD= or =DYLD_INSERT_LIBRARIES=, then filter the compile command.
-But the ~Bear~ dosn't work for the complicate sencen, for example, a makefile call both x86 and x64 exetable binaries, but the ~libear.so~ is ELF-64, then the ~LD_PRELOAD~ will failed on tracing the x86 binaries.
+But the ~Bear~ doesn't work for a complicated sencen, for example, a makefile call both x86 and x64 exetable binaries, but the ~libear.so~ is ELF-64, then the ~LD_PRELOAD~ will fail on tracing the x86 binaries.
 
 [[https://github.com/ffevotte/clang-tags/blob/master/clang-tags][clang-tags trace]]
-The ~clang-tags trace~ just simply parse the ~strace~ log line by line, will give wrong result for it didn't walking through the building tree.
+The ~clang-tags trace~ just simply parse the ~strace~ log line by line, will give wrong result for it didn't walk through the building tree.
