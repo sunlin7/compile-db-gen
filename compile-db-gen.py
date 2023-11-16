@@ -84,20 +84,25 @@ def get_sys_inc(compiler):
 
 
 class OType:
-    CHILD = 1
+    EXIT = 1
     CHDIR = 2
     EXEC = 3
 
 
-chdir_re = re.compile(r"^(\d+) +chdir\((.*)(\)\s+= 0|<unfinished ...>)")
-exec_re = re.compile(r"^(\d+) +execve\((.*)(\)\s*= 0|<unfinished ...>)")
-child_re = re.compile(r"^(\d+) .*SIGCHLD.*si_pid=(\d+).*")
+chdir_re = re.compile(r"^(\d+) +chdir\((.*)(\)\s+= 0|<unfinished \.\.\.>)")
+exec_re = re.compile(r"^(\d+) +execve\((.*)(\)\s*= 0|<unfinished \.\.\.>)")
+exit_re = re.compile(r"^(\d+) \+\+\+ (?:exited with|killed by) ")
+fork_re = re.compile(r"^(\d+) v?fork\((?:\) += (\d+)| <unfinished \.\.\.>)$")
+clone_re = re.compile(r"^(\d+) clone3?\(.*(?:\) = (\d+)| <unfinished \.\.\.>)$")
+child_re = re.compile(r"^(?:, child_tidptr=.*)?\) += (\d+)$")
 ccache_re = re.compile(r'^([^/]*/)*([^-]*-)*ccache(-\d+(\.\d+){0,2})?$')
 
+parent = {}
 
 def genlineobjs(fname):
     """Parse the lines into objects."""
     obj_list = []
+    unfinished_fork = False
     with open(fname, 'r') as fd:  # pre process to sensitive objects
         linum = 0                 # most editor line begin with 1
         for line in fd:
@@ -114,15 +119,39 @@ def genlineobjs(fname):
                 # print (pid + " chdir:" + proc_run[pid]["cwd"])
                 continue
 
+            m = fork_re.match(line)
+            if m:
+                pid, cid = m.group(1, 2)
+                if cid is not None:
+                    parent[cid] = pid
+                else:
+                    unfinished_fork = True
+                continue
+
+            m = clone_re.match(line)
+            if m:
+                pid, cid = m.group(1, 2)
+                if cid is not None:
+                    parent[cid] = pid
+                else:
+                    unfinished_fork = True
+                continue
+
             m = child_re.match(line)
-            if m:  # the child process end, move it to it's parent
+            if m:
+                if unfinished_fork:
+                    unfinished_fork = False
+                    cid = m.group(1)
+                    parent[cid] = pid
+                continue
+
+            m = exit_re.match(line)
+            if m:
                 pid = m.group(1)
-                cid = m.group(2)
                 obj_list.append({
                     'line': linum,
-                    'type': OType.CHILD,
-                    'pid': pid,
-                    'cid': cid})
+                    'type': OType.EXIT,
+                    'pid': pid})
                 continue
 
             m = exec_re.match(line)
@@ -144,17 +173,9 @@ def genlineobjs(fname):
                     "command": command
                 })
 
+        assert not unfinished_fork
+
     return obj_list
-
-
-def get_parent_pid(itr_pid_obj, pid):
-    'get parent PID'
-    for itr in itr_pid_obj:
-        if itr['type'] == OType.CHILD:
-            if itr['cid'] == pid:
-                return itr['pid']
-
-    return None
 
 
 def parse_exec_trace(fname, ppwd, proc_run):
@@ -174,11 +195,29 @@ proc_run[pid] = {
         except StopIteration:
             break
 
+        if item['type'] == OType.EXIT:
+            # the child process end, move it to it's parent
+            cid = item['pid']
+            if cid in proc_run:
+                child_item = proc_run[cid]
+                del proc_run[cid]  # remove from 'running' process list
+
+                pid = parent.get(cid)
+                if pid not in proc_run:
+                    # this process end, append it to its parent
+                    proc_run[pid] = {"cwd": ppwd,
+                                     "child": [],
+                                     "pname": "",
+                                     "command": ""}
+                proc_run[pid]["child"].append({cid: child_item})
+            continue
+
         pid = item['pid']
         if pid not in proc_run:
             # first ocurr in the lines, it's new child process, get the dir
             # try to find the child end log to get its parent
-            ppid = get_parent_pid(copy.copy(itr), pid)
+            ppid = parent.get(pid)
+            assert ppid is not None or not proc_run
             cwd = proc_run[ppid]['cwd'] if ppid in proc_run else ppwd
             proc_run[pid] = {"cwd": cwd,
                              "child": [],
@@ -195,23 +234,6 @@ proc_run[pid] = {
         if item['type'] == OType.CHDIR:  # chdir, record this
             pobj["cwd"] = os.path.join(pobj["cwd"], item['wd'])
             # print(pid + " chdir:" + pobj["cwd"])
-            continue
-
-        if item['type'] == OType.CHILD:
-            # the child process end, move it to it's parent
-            cid = item['cid']
-            if cid in proc_run:
-                child_item = proc_run[cid]
-                del proc_run[cid]  # remove from 'running' process list
-
-                if pid not in proc_run:
-                    # this process end, append it to it's parent
-                    proc_run[pid] = {"cwd": ppwd,
-                                     "child": [],
-                                     "pname": "",
-                                     "command": ""}
-                # print(pid + " child_end:" + item["cwd"])
-                proc_run[pid]["child"].append({cid: child_item})
             continue
 
 
@@ -287,7 +309,7 @@ def trace(args):
     proc.wait()
     arg_max = str(int(proc.stdout.readline()))
     command = [
-        "strace", "-f", "-s" + arg_max, "-etrace=execve,chdir", "-o",
+        "strace", "-f", "-s" + arg_max, "-etrace=%process,chdir", "-o",
         args.output
     ]
     command += args.command
