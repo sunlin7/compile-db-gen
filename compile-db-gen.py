@@ -344,6 +344,11 @@ def add_common_opts_parse(s):
                    default=True,
                    action="store_true",
                    help="auto detect the system include path")
+    s.add_argument("--no-auto-sys-inc",
+                   "-A",
+                   action="store_false",
+                   dest="auto_sys_inc",
+                   help="don't auto detect the system include path")
     s.add_argument("--include",
                    "-i",
                    metavar="REGEX",
