@@ -93,6 +93,7 @@ chdir_re = re.compile(r"^(\d+) +chdir\((.*)(\)\s+= 0|<unfinished \.\.\.>)")
 exec_re = re.compile(r"^(\d+) +execve\((.*)(\)\s*= 0|<unfinished \.\.\.>)")
 exit_re = re.compile(r"^(\d+) \+\+\+ (?:exited with|killed by) ")
 fork_re = re.compile(r"^(\d+) v?fork\((?:\) += (\d+)| <unfinished \.\.\.>)$")
+fork_resumed_re = re.compile(r"^(\d+) <\.\.\. v?fork resumed>\) += (\d+)$")
 clone_re = re.compile(r"^(\d+) clone3?\(.*(?:\) = (\d+)| <unfinished \.\.\.>)$")
 child_re = re.compile(r"^(?:, child_tidptr=.*)?\) += (\d+)$")
 ccache_re = re.compile(r'^([^/]*/)*([^-]*-)*ccache(-\d+(\.\d+){0,2})?$')
@@ -126,6 +127,14 @@ def genlineobjs(fname):
                     parent[cid] = pid
                 else:
                     unfinished_fork = True
+                continue
+
+            m = fork_resumed_re.match(line)
+            if m:
+                assert unfinished_fork
+                pid, cid = m.group(1, 2)
+                parent[cid] = pid
+                unfinished_fork = False
                 continue
 
             m = clone_re.match(line)
