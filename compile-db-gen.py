@@ -91,10 +91,10 @@ class OType:
 
 chdir_re = re.compile(r"^(\d+) +chdir\((.*)(\)\s+= 0|<unfinished \.\.\.>)")
 exec_re = re.compile(r"^(\d+) +execve\((.*)(\)\s*= 0|<unfinished \.\.\.>)")
-exit_re = re.compile(r"^(\d+) \+\+\+ (?:exited with|killed by) ")
-fork_re = re.compile(r"^(\d+) v?fork\((?:\) += (\d+)| <unfinished \.\.\.>)$")
-fork_resumed_re = re.compile(r"^(\d+) <\.\.\. v?fork resumed>\) += (\d+)$")
-clone_re = re.compile(r"^(\d+) clone3?\(.*(?:\) = (\d+)| <unfinished \.\.\.>)$")
+exit_re = re.compile(r"^(\d+) +\+\+\+ (?:exited with|killed by) ")
+fork_re = re.compile(r"^(\d+) +v?fork\((?:\) += (\d+)| <unfinished \.\.\.>)$")
+fork_resumed_re = re.compile(r"^(\d+) +<\.\.\. v?fork resumed>\) += (\d+)$")
+clone_re = re.compile(r"^(\d+) +clone3?\(.*(?:\) = (\d+)| <unfinished \.\.\.>)$")
 child_re = re.compile(r"^(?:, child_tidptr=.*)?\) += (\d+)$")
 ccache_re = re.compile(r'^([^/]*/)*([^-]*-)*ccache(-\d+(\.\d+){0,2})?$')
 
@@ -226,7 +226,7 @@ proc_run[pid] = {
             # first ocurr in the lines, it's new child process, get the dir
             # try to find the child end log to get its parent
             ppid = parent.get(pid)
-            assert ppid is not None or not proc_run
+            assert ppid is not None or not proc_run, f"{ppid} {pid} {proc_run} {parent}"
             cwd = proc_run[ppid]['cwd'] if ppid in proc_run else ppwd
             proc_run[pid] = {"cwd": cwd,
                              "child": [],
