@@ -318,7 +318,7 @@ def trace(args):
     proc.wait()
     arg_max = str(int(proc.stdout.readline()))
     command = [
-        "strace", "-f", "-s" + arg_max, "-etrace=%process,chdir", "-o",
+        "strace", "-z", "-f", "-s" + arg_max, "-etrace=%process,chdir", "-o",
         args.output
     ]
     command += args.command
