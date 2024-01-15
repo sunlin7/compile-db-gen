@@ -1,20 +1,34 @@
 #+OPTIONS: ^:nil
 #+TITLE:compile-db-gen
-Generate the [[http://clang.llvm.org/docs/JSONCompilationDatabase.html][JSON compilation database]](compile_commands.json) from tracing the make command (or other compile tools).
+Generate the [[http://clang.llvm.org/docs/JSONCompilationDatabase.html][JSON compilation database]] (compile_commands.json) from tracing the make command (or other compile tools).
 
 ** Why we need the compile-db-gen
-The ~compile-db-gen~ can work in complicate compile environment.
+The ~compile-db-gen~ can work in complicate compile environment to generate the =compile_commands.json=.
 
-Or, the ~compile-db-gen~ can save us from hard getting the =compile_commands.json= scenario.
+Or, the ~compile-db-gen~ can save us from hardly getting the =compile_commands.json= scenario.
 
 Here are some examples that getting the =compile_commands.json= easyly:
-1. A project which well orgnized with CMake, just run ~cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON~ to get the =compile_commands.json=.
+1. A project orgnized with CMake, just run ~cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON~ to get the =compile_commands.json=.
 
-2. A project orgnized with automake, and the [[https://github.com/rizsotto/Bear][Build EAR]] can get the =compile_commands.json= correctly.
+2. A project orgnized with automake, run make with [[https://github.com/rizsotto/Bear][Build EAR]] will get the =compile_commands.json= correctly.
+
+3. A project orgnized with Makefile and using the CC/CXX variables, run [[https://clang-analyzer.llvm.org/scan-build.html][scan-build]] can get the =comile_commands.json=.
 
 ...
+Beside these, it maybe hard to get the =compile_commands.json= for some complicated scenario.
 
-When we're NOT in these simple examples, the ~compile-db-gen~ can do well to get the =compile_commands.json=.
+Here is an example that can not get the =compile_commands.json= with previous tools:
+
+The compile steps will invoke some elf-64 tools to build some dirs, and will invoke some elf-32 tools to build other dirs, like:
+#+begin_src quote
+make
+-> elf-32 tool
+   -> gcc(32bits) ...
+-> elf-64 tool
+   -> gcc(64bits) ...
+#+end_src
+
+Then the ~compile-db-gen.py~ can do well on these dynamic compile scenario to get the =compile_commands.json=.
 
 ** Usage
 Just run the ~compile-db-gen.py~ with ~make~ and its arguments, eg:
@@ -35,9 +49,9 @@ For more options, please run
 #+END_SRC
 
 ** How dose it work
-   The [[http://wikipedia.org/wiki/Strace][strace]] tool can trace system call ~execve~ and write the arguments to log file.
+   The [[http://wikipedia.org/wiki/Strace][strace]] tool can trace system calls (~execve~, ~chdir~) and write their arguments to log file.
 
-   Then the ~compile-db-gen.py~ follow the log file to construct the process calling tree, then output the compile commands.
+   Then the ~compile-db-gen.py~ follow the log file to construct the process calling tree, and output the compile commands.
 
 ** Requirments
    The ~strace-4.8~ or high is required; ~python3~ is required.
@@ -60,7 +74,7 @@ It replaces the CC, CXX environment string, then get the compile database, but l
 
 [[https://github.com/rizsotto/Bear][Build EAR]] (Bear)
 It inject the ~libbear.so~ via modify the environment variables =LD_PRELOAD= or =DYLD_INSERT_LIBRARIES=, then filter the compile command.
-But the ~Bear~ doesn't work for a complicated sencen, for example, a makefile call both x86 and x64 exetable binaries, but the ~libear.so~ is ELF-64, then the ~LD_PRELOAD~ will fail on tracing the x86 binaries.
+But the ~Bear~ doesn't work for a complicated sencen, for example, a makefile called both x86 and x64 exetable binaries, but the ~libear.so~ is ELF-64, then the ~LD_PRELOAD~ will fail on tracing the x86 binaries.
 
 [[https://github.com/ffevotte/clang-tags/blob/master/clang-tags][clang-tags trace]]
 The ~clang-tags trace~ just simply parse the ~strace~ log line by line, will give wrong result for it didn't walk through the building tree.
