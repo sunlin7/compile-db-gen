@@ -92,10 +92,10 @@ class OType:
 chdir_re = re.compile(r"^(\d+) +chdir\((.*)(\)\s+= 0|<unfinished \.\.\.>)")
 exec_re = re.compile(r"^(\d+) +execve\((.*)(\)\s*= 0|<unfinished \.\.\.>)")
 exit_re = re.compile(r"^(\d+) +\+\+\+ (?:exited with|killed by) ")
-fork_re = re.compile(r"^(\d+) +v?fork\((?:\) += (\d+)| <unfinished \.\.\.>)$")
+fork_re = re.compile(r"^(\d+) +v?fork\((?:.+?\) += (\d+)| <unfinished \.\.\.>)$")
 fork_resumed_re = re.compile(r"^(\d+) +<\.\.\. v?fork resumed>\) += (\d+)$")
-clone_re = re.compile(r"^(\d+) +clone3?\(.*(?:\) = (\d+)| <unfinished \.\.\.>)$")
-child_re = re.compile(r"^(?:, child_tidptr=.*)?\) += (\d+)$")
+clone_re = re.compile(r"^(\d+) +clone3?\((?:.+?\) = (\d+)| <unfinished \.\.\.>)$")
+child_re = re.compile(r"^(\d+).+?, child_tidptr=.*\) += (\d+)$")
 ccache_re = re.compile(r'^([^/]*/)*([^-]*-)*ccache(-\d+(\.\d+){0,2})?$')
 
 parent = {}
@@ -150,7 +150,7 @@ def genlineobjs(fname):
             if m:
                 if unfinished_fork:
                     unfinished_fork = False
-                    cid = m.group(1)
+                    pid, cid = m.group(1, 2)
                     parent[cid] = pid
                 continue
 
