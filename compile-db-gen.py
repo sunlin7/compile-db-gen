@@ -57,7 +57,7 @@ def join_command(args):
     """Join the command with escaped options."""
     return ' '.join([shell_escape(arg) for arg in args])
 
-
+g_cache_size = 50
 g_sys_inc = {}
 
 
@@ -95,19 +95,32 @@ exit_re = re.compile(r"^(\d+) +\+\+\+ (?:exited with|killed by) ")
 fork_re = re.compile(r"^(\d+) +v?fork\((?:.+?\) += (\d+)| <unfinished \.\.\.>)$")
 fork_resumed_re = re.compile(r"^(\d+) +<\.\.\. v?fork resumed>\) += (\d+)$")
 clone_re = re.compile(r"^(\d+) +clone3?\((?:.+?\) = (\d+)| <unfinished \.\.\.>)$")
-child_re = re.compile(r"^(\d+).+?, child_tidptr=.*\) += (\d+)$")
+clone_resumed_re = re.compile(r"^(\d+).+?clone3? resumed.+?, child_tidptr=.*\) += (\d+)$")
 ccache_re = re.compile(r'^([^/]*/)*([^-]*-)*ccache(-\d+(\.\d+){0,2})?$')
 
 parent = {}
 
+def fill_cache(fd, linum, cache_lines):
+    '''Fill the cache_lines from fd, return latest linum'''
+    for line in fd:
+        linum += 1
+        cache_lines.append([linum, line])
+        if len(cache_lines) >= g_cache_size:
+            break
+    return linum
+
+
 def genlineobjs(fname):
     """Parse the lines into objects."""
     obj_list = []
-    unfinished_fork = False
     with open(fname, 'r') as fd:  # pre process to sensitive objects
-        linum = 0                 # most editor line begin with 1
-        for line in fd:
-            linum += 1
+        cache_lines = []
+        flinum = fill_cache(fd, 0, cache_lines)
+        while len(cache_lines) > 0:
+            [linum, line] = cache_lines.pop(0)
+            if len(cache_lines) <= 0:
+                flinum = fill_cache(fd, flinum, cache_lines)
+
             m = chdir_re.match(line)
             if m:  # chdir, record this
                 pid = m.group(1)
@@ -125,16 +138,16 @@ def genlineobjs(fname):
                 pid, cid = m.group(1, 2)
                 if cid is not None:
                     parent[cid] = pid
-                else:
-                    unfinished_fork = True
-                continue
+                    continue
+                # otherwise, it's unfinished fork(), search the resumed one
+                flinum = fill_cache(fd, flinum, cache_lines)
+                for [linum, line] in cache_lines:
+                    m = fork_resumed_re.match(line)
+                    if m and pid == m.group(1):  # get the resume entry
+                        pid, cid = m.group(1, 2)
+                        parent[cid] = pid
+                        break
 
-            m = fork_resumed_re.match(line)
-            if m:
-                assert unfinished_fork
-                pid, cid = m.group(1, 2)
-                parent[cid] = pid
-                unfinished_fork = False
                 continue
 
             m = clone_re.match(line)
@@ -142,16 +155,16 @@ def genlineobjs(fname):
                 pid, cid = m.group(1, 2)
                 if cid is not None:
                     parent[cid] = pid
-                else:
-                    unfinished_fork = True
-                continue
+                    continue
+                # otherwise, it's unfinised clone(), search the resumed one
+                flinum = fill_cache(fd, flinum, cache_lines)
+                for [linum, line] in cache_lines:
+                    m = clone_resumed_re.match(line)
+                    if m and pid == m.group(1):  # get the resumed entry
+                        pid, cid = m.group(1, 2)
+                        parent[cid] = pid
+                        break
 
-            m = child_re.match(line)
-            if m:
-                if unfinished_fork:
-                    unfinished_fork = False
-                    pid, cid = m.group(1, 2)
-                    parent[cid] = pid
                 continue
 
             m = exit_re.match(line)
@@ -181,8 +194,6 @@ def genlineobjs(fname):
                     "pname": pname,
                     "command": command
                 })
-
-        assert not unfinished_fork
 
     return obj_list
 
@@ -348,6 +359,7 @@ def parse(args):
         include_dir.append(re.compile(i))
     for i in args.exclude_dir:
         exclude_dir.append(re.compile(i))
+    g_cache_size = args.cache_size
     proc_res = []
     print_exec_trace(proc_run, proc_res, args.auto_sys_inc)
     json.dump(proc_res, ofs, indent=4)
@@ -404,6 +416,13 @@ def add_common_opts_parse(s):
                    default=[],
                    action="append",
                    help="exclude the dir patten")
+    s.add_argument("--cache-size",
+                   "-C",
+                   metavar="[0-10000]",
+                   type=int,
+                   choices=range(0, 10000),
+                   default=50,
+                   help="the size for caching log lines, default is 50")
 
 
 def add_common_opts_trace(parser):
