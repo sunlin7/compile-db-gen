@@ -92,7 +92,7 @@ class OType:
 chdir_re = re.compile(r"^(\d+) +chdir\((.*)(\)\s+= 0|<unfinished \.\.\.>)")
 exec_re = re.compile(r"^(\d+) +execve\((.*)(\)\s*= 0|<unfinished \.\.\.>)")
 exit_re = re.compile(r"^(\d+) +\+\+\+ (?:exited with|killed by) ")
-fork_re = re.compile(r"^(\d+) +v?fork\((?:.+?\) += (\d+)| <unfinished \.\.\.>)$")
+fork_re = re.compile(r"^(\d+) +v?fork\((?:.*?\) += (\d+)| <unfinished \.\.\.>)$")
 fork_resumed_re = re.compile(r"^(\d+) +<\.\.\. v?fork resumed>\) += (\d+)$")
 clone_re = re.compile(r"^(\d+) +clone3?\((?:.+?\) = (\d+)| <unfinished \.\.\.>)$")
 child_re = re.compile(r"^(\d+).+?, child_tidptr=.*\) += (\d+)$")
@@ -321,6 +321,9 @@ def trace(args):
         "strace", "-z", "-f", "-s" + arg_max, "-etrace=%process,chdir", "-o",
         args.output
     ]
+    if args.seccomp_bpf:
+        command += ["--seccomp-bpf"]
+
     command += args.command
     # TBD: the output of stdin/stderr maybe very large, hangup happend when try
     # to grabe them, refer the manual of .wait() for detail.
@@ -408,6 +411,11 @@ def add_common_opts_parse(s):
 
 def add_common_opts_trace(parser):
     """add the opts for subcommand "trace" """
+    parser.add_argument("--seccomp-bpf",
+                        "-S",
+                        default=False,
+                        action="store_true",
+                        help="strace with --seccomp-bpf (experimental, strace 5.3+)")
     parser.add_argument("command",
                         metavar="COMMAND",
                         nargs=argparse.REMAINDER,
